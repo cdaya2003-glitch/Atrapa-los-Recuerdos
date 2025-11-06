@@ -1,0 +1,254 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MNEMOS Labs: Fleeting Memory Collector</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+        }
+
+        #app {
+            background-image: url('https://wallpapers.com/images/hd/4k-ultra-hd-dark-swirls-s15rvka3px64w9nj.jpg');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+
+        #memoryCanvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body class=""> 
+    <div id="app" class="relative w-screen h-screen">
+
+        <div class="absolute inset-0 z-10 pointer-events-none p-6 md:p-10 flex flex-col justify-between">
+            
+            <header class="text-white">
+                <h1 class="text-4xl md:text-6xl font-extrabold tracking-tight text-indigo-400">
+                    MNEMOS <span class="text-gray-400 font-light">Labs</span>
+                </h1>
+                <p class="text-base md:text-lg text-gray-500 mt-1">Recuerdos Fugaces</p>
+            </header>
+            
+            <footer class="text-white text-right flex justify-end items-end gap-4">
+                <button id="finishButton" class="hidden px-5 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-500 transition shadow-md shadow-red-500/50 text-lg pointer-events-auto">
+                    Finalizar
+                </button>
+
+                <div class="bg-black/50 backdrop-blur-sm p-3 rounded-xl shadow-lg inline-block">
+                    <p class="text-xl md:text-3xl font-semibold text-gray-300 uppercase">
+                        Recuerdos Recolectados: 
+                        <span id="scoreDisplay" class="text-5xl md:text-6xl font-extrabold text-teal-400 ml-3">0</span>
+                    </p>
+                </div>
+            </footer>
+            <p class="text-sm text-gray-500 mt-2 text-right absolute bottom-5 right-10">Haz clic o toca para capturar el recuerdo antes de que se desvanezca.</p>
+
+        </div>
+
+        <div id="messageBox" class="absolute inset-0 bg-black/80 flex items-center justify-center pointer-events-auto z-20">
+            <div class="bg-gray-800 p-8 rounded-xl shadow-2xl max-w-sm text-center">
+                <h2 class="text-4xl font-bold text-teal-400 mb-4">Inicia la Recolección</h2>
+                <p class="text-gray-300 mb-6 text-lg">En este mundo distópico, los recuerdos se desvanecen rápidamente. Captura las luces azules antes de que desaparezcan.</p>
+                <button id="startButton" class="px-6 py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-500 transition shadow-md shadow-indigo-500/50 text-lg">
+                    Comenzar
+                </button>
+            </div>
+        </div>
+
+        <canvas id="memoryCanvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('memoryCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const messageBox = document.getElementById('messageBox');
+        
+        // Elementos de UI
+        const startButton = document.getElementById('startButton');
+        const finishButton = document.getElementById('finishButton'); // NUEVO
+
+        let memories = [];
+        let score = 0;
+        let animationFrameId;
+        let isGameRunning = false;
+        
+        const CAPSULE_WIDTH = 40; 
+        const CAPSULE_HEIGHT = 60;
+        const FADE_RATE = 0.005; 
+        const SPAWN_INTERVAL = 300; 
+        let lastSpawnTime = 0;
+
+        class Memory {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.opacity = 1.0;
+                this.color = '20, 255, 255'; 
+                this.id = Date.now() + Math.random(); 
+            }
+
+            update() {
+                this.opacity -= FADE_RATE;
+                this.x += (Math.random() - 0.5) * 0.5; 
+                this.y += (Math.random() - 0.5) * 0.5; 
+            }
+
+            draw() {
+                const w = CAPSULE_WIDTH;
+                const h = CAPSULE_HEIGHT;
+                const x = this.x - w / 2;
+                const y = this.y - h / 2;
+                const r = w / 2; 
+
+                const glowPadding = 10;
+                const glowW = w + glowPadding;
+                const glowH = h + glowPadding;
+                const glowX = this.x - glowW / 2;
+                const glowY = this.y - glowH / 2;
+                const glowR = glowW / 2;
+
+                ctx.beginPath();
+                ctx.roundRect(glowX, glowY, glowW, glowH, glowR);
+                ctx.fillStyle = `rgba(${this.color}, ${this.opacity * 0.1})`; 
+                ctx.shadowColor = `rgba(${this.color}, ${this.opacity})`;
+                ctx.shadowBlur = 15;
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.roundRect(x, y, w, h, r); 
+                ctx.fillStyle = `rgba(${this.color}, ${this.opacity})`;
+                ctx.shadowBlur = 0; 
+                ctx.fill();
+            }
+        }
+
+       
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        function spawnMemory() {
+            const x = Math.random() * canvas.width;
+            const y = Math.random() * canvas.height;
+            memories.push(new Memory(x, y));
+        }
+        
+       
+        function handleInteraction(clientX, clientY) {
+            if (!isGameRunning) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = clientX - rect.left;
+            const mouseY = clientY - rect.top;
+
+            let collected = false;
+            
+            for (let i = memories.length - 1; i >= 0; i--) {
+                const mem = memories[i];
+
+                const hitWidth = CAPSULE_WIDTH * 1.5;
+                const hitHeight = CAPSULE_HEIGHT * 1.5;
+                const x1 = mem.x - hitWidth / 2;
+                const x2 = mem.x + hitWidth / 2;
+                const y1 = mem.y - hitHeight / 2;
+                const y2 = mem.y + hitHeight / 2;
+
+                if (mouseX > x1 && mouseX < x2 && mouseY > y1 && mouseY < y2) {
+                    score++;
+                    scoreDisplay.textContent = score;
+                    memories.splice(i, 1);
+                    collected = true;
+                    break;
+                }
+            }
+        }
+
+        
+        function animate(currentTime) {
+            if (!isGameRunning) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (currentTime - lastSpawnTime > SPAWN_INTERVAL) {
+                spawnMemory();
+                lastSpawnTime = currentTime;
+            }
+            
+            for (let i = memories.length - 1; i >= 0; i--) {
+                const mem = memories[i];
+                mem.update();
+                mem.draw();
+
+                if (mem.opacity <= 0) {
+                    memories.splice(i, 1);
+                }
+            }
+
+            animationFrameId = requestAnimationFrame(animate);
+        }
+
+        
+        function finishGame() {
+            if (!isGameRunning) return; 
+
+            isGameRunning = false;
+            cancelAnimationFrame(animationFrameId);
+            
+            finishButton.classList.add('hidden');
+            messageBox.style.display = 'flex';
+
+            memories = [];
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+       
+        function startGame() {
+            if (isGameRunning) return; 
+            
+            messageBox.style.display = 'none';
+            finishButton.classList.remove('hidden'); 
+            isGameRunning = true;
+            score = 0;
+            scoreDisplay.textContent = score;
+            memories = [];
+            lastSpawnTime = 0;
+            
+            resizeCanvas();
+            animationFrameId = requestAnimationFrame(animate); 
+        }
+
+        
+        window.addEventListener('resize', resizeCanvas);
+        
+        canvas.addEventListener('mousedown', (e) => handleInteraction(e.clientX, e.clientY));
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); 
+            if (e.touches.length > 0) {
+                handleInteraction(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: false });
+
+        startButton.addEventListener('click', startGame);
+        finishButton.addEventListener('click', finishGame); // NUEVO
+
+        resizeCanvas();
+
+        messageBox.style.display = 'flex';
+
+    </script>
+</body>
+</html>
